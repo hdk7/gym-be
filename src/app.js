@@ -12,14 +12,18 @@ const notFoundMiddleware  = require("./middleware/notFound.middleware");
 
 const app = express();
 
-// ── Trust proxy (required if running behind nginx / cloud load balancer) ───────
-if (NODE_ENV === "production") {
-  app.set("trust proxy", 1);
-}
+// ── Trust proxy (required behind Render / Vercel / cloud load balancer) ────────
+app.set("trust proxy", 1);
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
-const allowedOrigins = [
-  CLIENT_ORIGIN,
+// Parse configured origins (supports comma-separated list, trims whitespace and trailing slashes)
+const configuredOrigins = (CLIENT_ORIGIN || "")
+  .split(",")
+  .map((o) => o.trim().replace(/\/+$/, ""))
+  .filter(Boolean);
+
+const defaultAllowedOrigins = [
+  ...configuredOrigins,
   "http://localhost:5173",
   "http://localhost:5174",
   "http://localhost:5175",
@@ -28,31 +32,76 @@ const allowedOrigins = [
   "http://127.0.0.1:5174",
   "http://127.0.0.1:5175",
   "http://127.0.0.1:5176",
-].filter(Boolean);
+];
+
+function isOriginAllowed(origin) {
+  if (!origin) return true;
+
+  const normalized = origin.trim().replace(/\/+$/, "");
+
+  // 1. Wildcard configured in CLIENT_ORIGIN
+  if (configuredOrigins.includes("*")) {
+    return true;
+  }
+
+  // 2. Exact match in default / configured allowed origins (case-insensitive)
+  if (
+    defaultAllowedOrigins.some(
+      (allowed) => allowed.toLowerCase() === normalized.toLowerCase()
+    )
+  ) {
+    return true;
+  }
+
+  // 3. Allow any Vercel domain (*.vercel.app - production and preview deployments)
+  try {
+    const url = new URL(normalized);
+    if (url.hostname === "vercel.app" || url.hostname.endsWith(".vercel.app")) {
+      return true;
+    }
+    // Also allow Render domain (*.onrender.com)
+    if (url.hostname === "onrender.com" || url.hostname.endsWith(".onrender.com")) {
+      return true;
+    }
+  } catch (_) {}
+
+  // 4. In development / non-production, allow any localhost or 127.0.0.1 port
+  if (
+    NODE_ENV !== "production" &&
+    /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(normalized)
+  ) {
+    return true;
+  }
+
+  return false;
+}
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (e.g. mobile apps, curl, Postman)
+      // Allow requests with no origin (e.g. mobile apps, curl, Postman, server-to-server)
       if (!origin) return callback(null, true);
 
-      // In non-production, allow any localhost / 127.0.0.1 port
-      if (
-        NODE_ENV !== "production" &&
-        /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)
-      ) {
+      if (isOriginAllowed(origin)) {
         return callback(null, true);
       }
 
-      if (allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      }
-
+      console.warn(`[CORS Blocked] Origin not allowed: "${origin}"`);
       return callback(null, false);
     },
     credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-Requested-With",
+      "Accept",
+      "Origin",
+      "Cache-Control",
+      "Pragma",
+    ],
+    exposedHeaders: ["RateLimit-Limit", "RateLimit-Remaining", "RateLimit-Reset"],
+    optionsSuccessStatus: 204,
   })
 );
 

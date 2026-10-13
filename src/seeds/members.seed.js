@@ -41,6 +41,15 @@ async function seedMembers(options = {}) {
     }
   }
 
+  // Remove any member whose id is not in SEED_MEMBERS to keep DB synchronized
+  const allowedIds = SEED_MEMBERS.map((m) => m.id);
+  const deleteResult = await Member.deleteMany({ id: { $nin: allowedIds } });
+  if (!silent && deleteResult.deletedCount > 0) {
+    console.log(
+      `[Seed:Members] Pruned ${deleteResult.deletedCount} outdated members from collection.`
+    );
+  }
+
   if (!silent) {
     console.log(
       `[Seed:Members] ✓ ${upserted} members seeded/upserted${skipped > 0 ? ` (${skipped} duplicates skipped)` : ""}.`
