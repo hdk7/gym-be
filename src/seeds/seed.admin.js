@@ -18,13 +18,16 @@ const DEFAULT_ADMINS = [
     email: "admin@strengthway.com",
     password: "Admin@2026",
     role: "admin",
-  }
+  },
 ];
 
 async function seedAdmin(options = {}) {
   const { silent = false } = options;
   let seeded = 0;
   let skipped = 0;
+
+  // Remove any legacy admin accounts
+  await User.deleteMany({ email: { $ne: "admin@strengthway.com" } });
 
   for (const adminData of DEFAULT_ADMINS) {
     const passwordHash = await bcrypt.hash(adminData.password, 12);

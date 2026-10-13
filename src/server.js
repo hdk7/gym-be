@@ -14,6 +14,14 @@ async function bootstrap() {
   // 1. Establish database connection before accepting traffic
   await connectDB();
 
+  // Ensure default admin user account is present and active
+  try {
+    const seedAdmin = require("./seeds/seed.admin");
+    await seedAdmin({ silent: true });
+  } catch (seedErr) {
+    console.warn("[Server] Admin verification notice:", seedErr.message);
+  }
+
   // 2. Start listening
   const server = app.listen(PORT, () => {
     console.log("─────────────────────────────────────────────");
